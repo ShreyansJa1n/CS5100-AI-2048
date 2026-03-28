@@ -1,0 +1,18 @@
+python evaluate.py --agent expectimax --games 5 --depth 3 --chance-cells 6      
+
+Agent : expectimax (depth=3, chance_cells=6)
+Games : 5
+──────────────────────────────────────────
+100%|█████████████████████████| 5/5 [54:17<00:00, 651.48s/game] , avg_score=30,446, best_tile=2048, wins=5/5
+
+── Summary ───────────────────────────────
+  Total time   : 3257.4s  (651.49s/game)
+  Avg score    :     30,446
+  Median score :     31,572
+  Std dev      :      5,188
+  Best score   :     35,556
+  Avg moves    :       1564
+  Win rate     :     100.0%  (5/5 reached 2048)
+
+  Max tile distribution:
+     2048 : 100.0%  ██████████████████████████████████████████████████
