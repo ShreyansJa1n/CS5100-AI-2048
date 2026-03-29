@@ -16,3 +16,25 @@ Games : 5
 
   Max tile distribution:
      2048 : 100.0%  ██████████████████████████████████████████████████
+
+
+python evaluate.py --agent expectimax --games 5 --depth 3 --chance-cells 2
+
+Agent : expectimax (depth=3, chance_cells=2)
+Games : 5
+──────────────────────────────────────────
+100%|████████████████████████████████████████████████████| 5/5 [02:32<00:00, 30.56s/game] , avg_score=19,140, best_tile=2048, wins=1/5
+
+── Summary ───────────────────────────────
+  Total time   : 152.8s  (30.56s/game)
+  Avg score    :     19,140
+  Median score :     15,480
+  Std dev      :      9,931
+  Best score   :     36,756
+  Avg moves    :       1075
+  Win rate     :      20.0%  (1/5 reached 2048)
+
+  Max tile distribution:
+     2048 :  20.0%  ██████████
+     1024 :  80.0%  ████████████████████████████████████████
+──────────────────────────────────────────
