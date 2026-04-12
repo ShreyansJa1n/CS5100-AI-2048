@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import argparse
 import functools
+import os
 import statistics
 import time
 from collections import Counter
+from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 from tqdm import tqdm
@@ -35,17 +37,22 @@ def _random_agent(state: dict) -> Optional[str]:
     return random.choice(moves) if moves else None
 
 
-def _build_agent(name: str, depth: int, chance_cells: int) -> Callable:
+def _build_agent(name: str, depth: int, chance_cells: int, weights: str = None) -> Callable:
     if name == "expectimax":
         import agents.expectimax_agent as em
         em._MAX_CHANCE_CELLS = chance_cells
         return functools.partial(expectimax_agent, depth=depth)
     if name == "random":
         return _random_agent
+    if name == "td":
+        from agents.td_ntuple_agent import td_ntuple_agent
+        if weights:
+            return functools.partial(td_ntuple_agent, weights_path=weights)
+        return td_ntuple_agent
     raise ValueError(f"Unknown agent: {name}")
 
 
-AGENTS = ["expectimax", "random"]
+AGENTS = ["expectimax", "random", "td"]
 
 ARROW = {"up": "↑", "down": "↓", "left": "←", "right": "→"}
 
@@ -192,30 +199,93 @@ def evaluate(
 
     elapsed = time.time() - start
     _print_summary(results, n_games, elapsed)
+    _dump_results(results, n_games, elapsed, agent_label)
 
 
-def _print_summary(results: List[Dict], n_games: int, elapsed: float) -> None:
+def _build_summary_lines(
+    results: List[Dict], n_games: int, elapsed: float,
+) -> List[str]:
+    """Build the summary block as a list of plain-text lines (no ANSI)."""
     scores    = [r["score"]    for r in results]
     moves     = [r["moves"]    for r in results]
     tile_dist = Counter(r["max_tile"] for r in results)
     wins      = sum(r["won"] for r in results)
 
-    print("\n── Summary " + "─" * 31)
-    print(f"  Total time   : {elapsed:.1f}s  ({elapsed / n_games:.2f}s/game)")
-    print(f"  Avg score    : {statistics.mean(scores):>10,.0f}")
-    print(f"  Median score : {statistics.median(scores):>10,.0f}")
-    print(f"  Std dev      : {statistics.stdev(scores) if n_games > 1 else 0:>10,.0f}")
-    print(f"  Best score   : {max(scores):>10,}")
-    print(f"  Avg moves    : {statistics.mean(moves):>10.0f}")
-    print(f"  Win rate     : {wins / n_games * 100:>9.1f}%  ({wins}/{n_games} reached 2048)")
-
-    print("\n  Max tile distribution:")
+    lines: List[str] = []
+    lines.append("")
+    lines.append("── Summary " + "─" * 31)
+    lines.append(f"  Total time   : {elapsed:.1f}s  ({elapsed / n_games:.2f}s/game)")
+    lines.append(f"  Avg score    : {statistics.mean(scores):>10,.0f}")
+    lines.append(f"  Median score : {statistics.median(scores):>10,.0f}")
+    lines.append(f"  Std dev      : {statistics.stdev(scores) if n_games > 1 else 0:>10,.0f}")
+    lines.append(f"  Best score   : {max(scores):>10,}")
+    lines.append(f"  Worst score  : {min(scores):>10,}")
+    lines.append(f"  Avg moves    : {statistics.mean(moves):>10.0f}")
+    lines.append(f"  Median moves : {statistics.median(moves):>10.0f}")
+    lines.append(f"  Win rate     : {wins / n_games * 100:>9.1f}%  ({wins}/{n_games} reached 2048)")
+    lines.append("")
+    lines.append("  Max tile distribution:")
     for tile in sorted(tile_dist.keys(), reverse=True):
         pct = tile_dist[tile] / n_games * 100
         bar = "█" * int(pct / 2)
-        print(f"    {tile:>5} : {pct:5.1f}%  {bar}")
+        lines.append(f"    {tile:>5} : {pct:5.1f}%  ({tile_dist[tile]:>4} games)  {bar}")
+    lines.append("─" * 42)
+    return lines
 
-    print("─" * 42 + "\n")
+
+def _print_summary(results: List[Dict], n_games: int, elapsed: float) -> None:
+    for line in _build_summary_lines(results, n_games, elapsed):
+        print(line)
+    print()
+
+
+def _dump_results(
+    results: List[Dict],
+    n_games: int,
+    elapsed: float,
+    agent_label: str,
+) -> None:
+    """Write a detailed results file into results/ with a datetime-based name."""
+    os.makedirs("results", exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    agent_short = agent_label.split()[0]  # e.g. "expectimax", "td", "random"
+    filename = f"results/{ts}_{agent_short}_{n_games}games.txt"
+
+    scores    = [r["score"]    for r in results]
+    moves     = [r["moves"]    for r in results]
+    max_tiles = [r["max_tile"] for r in results]
+
+    with open(filename, "w") as f:
+        f.write(f"2048 Agent Evaluation Results\n")
+        f.write(f"{'=' * 60}\n")
+        f.write(f"Timestamp  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Agent      : {agent_label}\n")
+        f.write(f"Games      : {n_games}\n")
+        f.write(f"\n")
+
+        # Summary block
+        for line in _build_summary_lines(results, n_games, elapsed):
+            f.write(line + "\n")
+
+        # Score percentiles
+        sorted_scores = sorted(scores)
+        f.write(f"\n  Score percentiles:\n")
+        for p in [10, 25, 50, 75, 90, 95, 99]:
+            idx = min(int(n_games * p / 100), n_games - 1)
+            f.write(f"    p{p:<2} : {sorted_scores[idx]:>10,}\n")
+
+        # Per-game results table
+        f.write(f"\n{'=' * 60}\n")
+        f.write(f"Per-Game Results\n")
+        f.write(f"{'=' * 60}\n")
+        f.write(f"{'Game':>6}  {'Score':>10}  {'Moves':>6}  {'Max Tile':>9}  {'Won':>4}\n")
+        f.write(f"{'-'*6}  {'-'*10}  {'-'*6}  {'-'*9}  {'-'*4}\n")
+        for i, r in enumerate(results, 1):
+            won_str = "yes" if r["won"] else ""
+            f.write(f"{i:>6}  {r['score']:>10,}  {r['moves']:>6}  {r['max_tile']:>9,}  {won_str:>4}\n")
+
+    print(f"Results saved to {filename}")
+    return filename
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -245,6 +315,10 @@ def main() -> None:
              "Best used with --games 1.",
     )
     parser.add_argument(
+        "--weights", type=str, default=None,
+        help="Path to .npz weights file for the TD agent (default: weights/td_ntuple.npz).",
+    )
+    parser.add_argument(
         "--gui", action="store_true",
         help="Watch the agent play in the Tkinter GUI instead of running headlessly.",
     )
@@ -254,12 +328,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    label = (
-        f"{args.agent}"
-        + (f" (depth={args.depth}, chance_cells={args.chance_cells})"
-           if args.agent == "expectimax" else "")
-    )
-    agent_fn = _build_agent(args.agent, args.depth, args.chance_cells)
+    label = f"{args.agent}"
+    if args.agent == "expectimax":
+        label += f" (depth={args.depth}, chance_cells={args.chance_cells})"
+    elif args.agent == "td":
+        label += f" (weights={args.weights or 'default'})"
+    agent_fn = _build_agent(args.agent, args.depth, args.chance_cells, weights=args.weights)
 
     if args.gui:
         run_gui(agent_fn, delay_ms=args.gui_delay)
